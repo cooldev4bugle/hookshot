@@ -23,6 +23,14 @@ class WebhookRequest:
         """Decode body as UTF-8 text, replacing undecodable bytes."""
         return self.body.decode("utf-8", errors="replace")
 
+    @property
+    def content_type(self) -> str | None:
+        """Return the Content-Type header value, case-insensitively, or None if absent."""
+        for key, value in self.headers.items():
+            if key.lower() == "content-type":
+                return value
+        return None
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize the request to a JSON-friendly dictionary."""
         return {
