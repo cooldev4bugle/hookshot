@@ -1,8 +1,10 @@
+"""Flask application for the hookshot webhook relay server."""
+
 from flask import Flask, request, jsonify, abort
-from hookshot.storage import RequestStore
 from hookshot.models import WebhookRequest
-from hookshot.forwarder import Forwarder, ForwardError
+from hookshot.storage import RequestStore
 from hookshot.replayer import Replayer, ReplayError
+from hookshot.filter import RequestFilter
 
 
 def create_app(store: RequestStore, target_url: str = None) -> Flask:
@@ -21,19 +23,26 @@ def create_app(store: RequestStore, target_url: str = None) -> Flask:
             body=request.get_data(),
         )
         store.save(req)
-
-        if target_url:
-            try:
-                forwarder = Forwarder(target_url=target_url)
-                forwarder.forward(req)
-            except ForwardError:
-                pass
-
         return jsonify({"id": req.id, "status": "received"}), 200
 
     @app.route("/_hookshot/requests", methods=["GET"])
     def list_requests():
-        return jsonify([r.to_dict() for r in store.all()])
+        method = request.args.get("method")
+        path_prefix = request.args.get("path")
+        content_type = request.args.get("content_type")
+        limit = request.args.get("limit", type=int)
+
+        f = RequestFilter(store.all())
+        if method:
+            f = f.by_method(method)
+        if path_prefix:
+            f = f.by_path(path_prefix)
+        if content_type:
+            f = f.by_content_type(content_type)
+        if limit:
+            f = f.limit(limit)
+
+        return jsonify([r.to_dict() for r in f.results()])
 
     @app.route("/_hookshot/requests/<request_id>", methods=["GET"])
     def get_request(request_id):
@@ -53,7 +62,7 @@ def create_app(store: RequestStore, target_url: str = None) -> Flask:
         try:
             replayer = Replayer(target_url=url)
             result = replayer.replay(req)
-            return jsonify(result.to_dict()), 200
+            return jsonify(result.to_dict())
         except ReplayError as e:
             return jsonify({"error": str(e)}), 502
 
