@@ -1,48 +1,35 @@
-import uuid
-from datetime import datetime, timezone
-from flask import Flask, request, jsonify
-from hookshot.models import WebhookRequest
+from flask import Flask, request, jsonify, abort
 from hookshot.storage import RequestStore
+from hookshot.models import WebhookRequest
 from hookshot.forwarder import Forwarder, ForwardError
+from hookshot.replayer import Replayer, ReplayError
 
 
-def create_app(target_url=None, store=None):
+def create_app(store: RequestStore, target_url: str = None) -> Flask:
     app = Flask(__name__)
-    app.config["TARGET_URL"] = target_url
-
-    if store is None:
-        store = RequestStore()
-    app.extensions["store"] = store
-
-    forwarder = Forwarder(target_url) if target_url else None
+    app.config["store"] = store
+    app.config["target_url"] = target_url
 
     @app.route("/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
     @app.route("/<path:path>", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
     def catch_all(path):
-        incoming = WebhookRequest(
+        req = WebhookRequest(
             method=request.method,
-            path="/" + path if path else "/",
+            path="/" + path,
+            query_string=request.query_string.decode("utf-8"),
             headers=dict(request.headers),
             body=request.get_data(),
-            query_string=request.query_string.decode("utf-8"),
         )
-        store.save(incoming)
+        store.save(req)
 
-        forward_status = None
-        forward_error = None
-        if forwarder:
+        if target_url:
             try:
-                resp = forwarder.forward(incoming)
-                forward_status = resp.status_code
-            except ForwardError as e:
-                forward_error = str(e)
+                forwarder = Forwarder(target_url=target_url)
+                forwarder.forward(req)
+            except ForwardError:
+                pass
 
-        result = {"id": incoming.id, "status": "received"}
-        if forward_status is not None:
-            result["forwarded_status"] = forward_status
-        if forward_error is not None:
-            result["forward_error"] = forward_error
-        return jsonify(result), 200
+        return jsonify({"id": req.id, "status": "received"}), 200
 
     @app.route("/_hookshot/requests", methods=["GET"])
     def list_requests():
@@ -52,7 +39,22 @@ def create_app(target_url=None, store=None):
     def get_request(request_id):
         req = store.get(request_id)
         if req is None:
-            return jsonify({"error": "not found"}), 404
+            abort(404)
         return jsonify(req.to_dict())
+
+    @app.route("/_hookshot/requests/<request_id>/replay", methods=["POST"])
+    def replay_request(request_id):
+        req = store.get(request_id)
+        if req is None:
+            abort(404)
+        url = app.config.get("target_url")
+        if not url:
+            return jsonify({"error": "No target URL configured"}), 400
+        try:
+            replayer = Replayer(target_url=url)
+            result = replayer.replay(req)
+            return jsonify(result.to_dict()), 200
+        except ReplayError as e:
+            return jsonify({"error": str(e)}), 502
 
     return app
