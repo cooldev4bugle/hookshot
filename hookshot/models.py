@@ -31,6 +31,15 @@ class WebhookRequest:
                 return value
         return None
 
+    @property
+    def is_json(self) -> bool:
+        """Return True if the Content-Type indicates a JSON payload."""
+        ct = self.content_type
+        if ct is None:
+            return False
+        mime = ct.split(";")[0].strip().lower()
+        return mime == "application/json" or mime.endswith("+json")
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize the request to a JSON-friendly dictionary."""
         return {
