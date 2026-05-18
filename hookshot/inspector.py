@@ -53,6 +53,7 @@ class Inspector:
         self._check_body_size(request, result)
         self._check_json_body(request, result)
         self._check_missing_user_agent(request, result)
+        self._check_duplicate_headers(request, result)
 
         return result
 
@@ -90,4 +91,19 @@ class Inspector:
         if "user-agent" not in headers:
             result.insights.append(
                 Insight("info", "missing_user_agent", "No User-Agent header present.")
+            )
+
+    def _check_duplicate_headers(self, request: WebhookRequest, result: InspectionResult):
+        """Detect headers that appear more than once (case-insensitive)."""
+        if not request.headers:
+            return
+        seen = {}
+        for key in request.headers:
+            lower = key.lower()
+            seen[lower] = seen.get(lower, 0) + 1
+        duplicates = [k for k, count in seen.items() if count > 1]
+        if duplicates:
+            names = ", ".join(sorted(duplicates))
+            result.insights.append(
+                Insight("warning", "duplicate_headers", f"Duplicate headers detected: {names}.")
             )
