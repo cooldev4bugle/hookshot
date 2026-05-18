@@ -33,8 +33,25 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+def validate_args(args):
+    """Validate parsed arguments and exit with a helpful message on error."""
+    if args.target and not args.target.startswith(("http://", "https://")):
+        print(
+            f"error: --target must be a valid URL starting with http:// or https://",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if not (1 <= args.port <= 65535):
+        print(
+            f"error: --port must be between 1 and 65535, got {args.port}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def main(argv=None):
     args = parse_args(argv)
+    validate_args(args)
     app = create_app(target_url=args.target)
     print(f"hookshot listening on http://{args.host}:{args.port}")
     if args.target:
