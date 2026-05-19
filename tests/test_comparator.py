@@ -63,6 +63,17 @@ def test_compare_different_body(store, comparator):
     assert any(d.key == "body" for d in result.diffs)
 
 
+def test_compare_different_headers(store, comparator):
+    r1 = make_request(headers={"content-type": "application/json"})
+    r2 = make_request(headers={"content-type": "text/plain"})
+    store.save(r1)
+    store.save(r2)
+    result = comparator.compare(r1.id, r2.id)
+    assert not result.identical
+    keys = [d.key for d in result.diffs]
+    assert "headers" in keys
+
+
 def test_compare_missing_left_raises(store, comparator):
     r = make_request()
     store.save(r)
